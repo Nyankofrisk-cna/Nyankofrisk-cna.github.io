@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebSocket聊天应用</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#4F46E5',
+            secondary: '#7C3AED',
+            accent: '#F59E0B',
+            dark: '#1E293B',
+            light: '#F8FAFC'
+          },
+          fontFamily: {
+            inter: ['Inter', 'sans-serif'],
+          },
+        },
+      }
+    }
+  </script>
+  <style type="text/tailwindcss">
+    @layer utilities {
+      .content-auto {
+        content-visibility: auto;
+      }
+      .scrollbar-hide {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+      .scrollbar-hide::-webkit-scrollbar {
+        display: none;
+      }
+      .text-shadow {
+        text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      }
+      .animate-float {
+        animation: float 6s ease-in-out infinite;
+      }
+      @keyframes float {
+        0% { transform: translateY(0px); }
+        50% { transform: translateY(-10px); }
+        100% { transform: translateY(0px); }
+      }
+      .message-options {
+        opacity: 0;
+        transition: opacity 0.2s ease;
+      }
+      .message-container:hover .message-options {
+        opacity: 1;
+      }
+      .reaction {
+        cursor: pointer;
+        transition: transform 0.2s ease;
+      }
+      .reaction:hover {
+        transform: scale(1.2);
+      }
+      .reaction.active {
+        color: #4F46E5;
+        font-weight: bold;
+      }
+      .message-reactions {
+        margin-top: 4px;
+        display: flex;
+        gap: 8px;
+        font-size: 12px;
+        color: #6B7280;
+      }
+    }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-light to-gray-100 min-h-screen font-inter text-dark">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <header class="mb-8">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div class="flex items-center">
+          <div class="bg-primary text-white p-3 rounded-lg mr-3">
+            <i class="fa fa-comments-o text-2xl"></i>
+          </div>
+          <h1 class="text-[clamp(1.75rem,3vw,2.5rem)] font-bold text-dark">
+            WebSocket<span class="text-primary">聊天</span>应用
+          </h1>
+        </div>
+        <div class="flex gap-3">
+          <button id="startServerBtn" class="bg-primary hover:bg-primary/90 text-white px-5 py-2 rounded-lg transition-all duration-300 flex items-center shadow-lg hover:shadow-primary/30 hover:-translate-y-0.5">
+            <i class="fa fa-play mr-2"></i> 启动服务器
+          </button>
+          <button id="stopServerBtn" class="bg-red-500 hover:bg-red-600 text-white px-5 py-2 rounded-lg transition-all duration-300 flex items-center shadow-lg hover:shadow-red-500/30 hover:-translate-y-0.5" disabled>
+            <i class="fa fa-stop mr-2"></i> 停止服务器
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <!-- 服务器状态面板 -->
+      <div class="lg:col-span-1">
+        <div class="bg-white rounded-xl shadow-xl overflow-hidden transition-all duration-300 hover:shadow-2xl">
+          <div class="bg-primary text-white p-4">
+            <h2 class="text-xl font-bold flex items-center">
+              <i class="fa fa-server mr-2"></i> 服务器状态
+            </h2>
+          </div>
+          <div class="p-5">
+            <div class="space-y-4">
+              <div>
+                <div class="text-sm text-gray-500 mb-1">服务器地址</div>
+                <div class="flex items-center">
+                  <input type="text" id="serverAddress" class="w-full bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" value="ws://localhost:8080">
+                  <button id="copyAddressBtn" class="ml-2 text-primary hover:text-primary/80 transition-colors">
+                    <i class="fa fa-copy"></i>
+                  </button>
+                </div>
+              </div>
+              
+              <div>
+                <div class="text-sm text-gray-500 mb-1">当前状态</div>
+                <div id="serverStatus" class="bg-gray-100 rounded-lg px-3 py-2 text-sm font-medium text-gray-600">
+                  未启动
+                </div>
+              </div>
+              
+              <div>
+                <div class="text-sm text-gray-500 mb-1">连接数</div>
+                <div id="connectionCount" class="bg-gray-100 rounded-lg px-3 py-2 text-sm font-medium text-gray-600">
+                  0
+                </div>
+              </div>
+              
+              <div>
+                <div class="text-sm text-gray-500 mb-1">用户名</div>
+                <div class="flex">
+                  <input type="text" id="userName" placeholder="设置用户名" class="flex-1 bg-gray-100 border border-gray-200 rounded-l-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50" value="用户">
+                  <button id="setUserNameBtn" class="bg-primary text-white px-3 py-2 rounded-r-lg hover:bg-primary/90 transition-colors">
+                    <i class="fa fa-check"></i>
+                  </button>
+                </div>
+              </div>
+              
+              <div>
+                <div class="text-sm text-gray-500 mb-1">屏蔽词列表</div>
+                <div class="space-y-2">
+                  <div id="blockedWordsList" class="bg-gray-100 rounded-lg p-3 max-h-32 overflow-y-auto scrollbar-hide text-sm">
+                    <div class="text-gray-500 italic">暂无屏蔽词</div>
+                  </div>
+                  <div class="flex">
+                    <input type="text" id="newBlockedWord" placeholder="添加屏蔽词" class="flex-1 bg-gray-100 border border-gray-200 rounded-l-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50">
+                    <button id="addBlockedWordBtn" class="bg-primary text-white px-3 py-2 rounded-r-lg hover:bg-primary/90 transition-colors">
+                      <i class="fa fa-plus"></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 聊天面板 -->
+      <div class="lg:col-span-2">
+        <div class="bg-white rounded-xl shadow-xl overflow-hidden h-[550px] flex flex-col transition-all duration-300 hover:shadow-2xl">
+          <div class="bg-primary text-white p-4">
+            <h2 class="text-xl font-bold flex items-center">
+              <i class="fa fa-comments mr-2"></i> 聊天区域
+            </h2>
+          </div>
+          <div id="chatMessages" class="flex-1 p-5 overflow-y-auto scrollbar-hide space-y-4">
+            <div class="text-center py-10">
+              <div class="animate-float inline-block">
+                <div class="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-4">
+                  <i class="fa fa-comments-o text-2xl text-primary"></i>
+                </div>
+              </div>
+              <p class="text-gray-500 mt-2">启动服务器并发送第一条消息</p>
+            </div>
+          </div>
+          <div class="border-t border-gray-200 p-4">
+            <div class="flex gap-2">
+              <input type="text" id="messageInput" placeholder="输入消息..." class="flex-1 bg-gray-100 border border-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50">
+              <button id="sendMessageBtn" class="bg-primary hover:bg-primary/90 text-white px-5 py-3 rounded-lg transition-all duration-300 flex items-center shadow-lg hover:shadow-primary/30 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                <i class="fa fa-paper-plane mr-2"></i> 发送
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 日志面板 -->
+    <div class="mt-8">
+      <div class="bg-white rounded-xl shadow-xl overflow-hidden transition-all duration-300 hover:shadow-2xl">
+        <div class="bg-secondary text-white p-4 flex justify-between items-center">
+          <h2 class="text-xl font-bold flex items-center">
+            <i class="fa fa-terminal mr-2"></i> 服务器日志
+          </h2>
+          <button id="clearLogBtn" class="text-white/80 hover:text-white transition-colors">
+            <i class="fa fa-trash"></i>
+          </button>
+        </div>
+        <div class="p-5">
+          <div id="serverLog" class="bg-gray-900 text-gray-200 rounded-lg p-4 font-mono text-sm h-40 overflow-y-auto scrollbar-hide">
+            <div class="text-gray-400">等待服务器启动...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="mt-12 py-6 border-t border-gray-200">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex flex-col md:flex-row md:justify-between md:items-center">
+        <p class="text-gray-500 text-sm">© 2025 WebSocket聊天应用 | 实时通信演示</p>
+        <div class="flex gap-4 mt-4 md:mt-0">
+          <a href="#" class="text-gray-400 hover:text-primary transition-colors">
+            <i class="fa fa-github"></i>
+          </a>
+          <a href="#" class="text-gray-400 hover:text-primary transition-colors">
+            <i class="fa fa-twitter"></i>
+          </a>
+          <a href="#" class="text-gray-400 hover:text-primary transition-colors">
+            <i class="fa fa-linkedin"></i>
+          </a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // 消息ID生成器
+    let messageIdCounter = 0;
+    function generateMessageId() {
+      return `msg-${Date.now()}-${messageIdCounter++}`;
+    }
+    
+    // 服务器端WebSocket实现
+    class WebSocketServer {
+      constructor() {
+        this.server = null;
+        this.clients = new Set();
+        this.blockedWords = new Set(['sb', 'fuck', 'shit', 'bitch']);
+        this.port = 8080;
+        this.clientHandlers = [];
+      }
+      
+      start() {
+        if (this.server) {
+          return Promise.reject(new Error('服务器已在运行'));
+        }
+        
+        return new Promise((resolve, reject) => {
+          try {
+            // 使用浏览器的WebSocket API模拟服务器
+            // 注意：在实际生产环境中，应使用Node.js的ws库
+            this.server = {
+              clients: new Set(),
+              on: (event, callback) => {
+                // 模拟事件监听
+                if (event === 'connection') {
+                  this._connectionCallback = callback;
+                } else if (event === 'message') {
+                  this._messageCallback = callback;
+                }
+              },
+              close: () => {
+                this.server = null;
+                this.clients.clear();
+                this._log('服务器已停止');
+              }
+            };
+            
+            // 模拟客户端连接
+            setTimeout(() => {
+              if (this._connectionCallback) {
+                // 创建模拟客户端
+                const client = {
+                  id: Date.now(),
+                  send: (data) => {
+                    // 触发客户端的onmessage事件
+                    this.clientHandlers.forEach(handler => {
+                      if (handler && typeof handler === 'function') {
+                        handler({ data });
+                      }
+                    });
+                    this._log(`向客户端 ${client.id} 发送消息: ${data}`);
+                  },
+                  close: () => {
+                    this.server.clients.delete(client);
+                    if (this._closeCallback) {
+                      this._closeCallback.call(client);
+                    }
+                    this._updateConnectionCount();
+                  },
+                  onmessage: null
+                };
+                
+                this.server.clients.add(client);
+                this._connectionCallback.call(this.server, client);
+                this._log(`新客户端 ${client.id} 已连接`);
+                this._updateConnectionCount();
+                
+                // 设置消息处理函数
+                this._messageCallback = (message) => {
+                  this._log(`收到来自客户端 ${client.id} 的消息: ${message}`);
+                  this.broadcast(message);
+                };
+              }
+              
+              resolve();
+            }, 500);
+            
+            this._log(`服务器已启动，监听端口 ${this.port}`);
+            this._updateStatus('运行中');
+          } catch (error) {
+            this._log(`启动服务器失败: ${error.message}`);
+            reject(error);
+          }
+        });
+      }
+      
+      stop() {
+        if (!this.server) {
+          return Promise.reject(new Error('服务器未运行'));
+        }
+        
+        return new Promise((resolve) => {
+          try {
+            // 关闭所有客户端连接
+            this.server.clients.forEach(client => client.close());
+            
+            // 关闭服务器
+            this.server.close();
+            this.server = null;
+            this._updateStatus('未启动');
+            this._updateConnectionCount();
+            resolve();
+          } catch (error) {
+            this._log(`停止服务器失败: ${error.message}`);
+            resolve(); // 即使出错也认为停止操作完成
+          }
+        });
+      }
+      
+      broadcast(message) {
+        if (!this.server) {
+          return;
+        }
+        
+        // 检查并过滤屏蔽词
+        const filteredMessage = this._filterMessage(message);
+        
+        // 广播消息给所有客户端
+        this.server.clients.forEach(client => {
+          try {
+            // 添加消息ID
+            const messageWithId = JSON.stringify({
+              id: generateMessageId(),
+              content: filteredMessage
+            });
+            client.send(messageWithId);
+          } catch (error) {
+            this._log(`发送消息失败: ${error.message}`);
+          }
+        });
+        
+        this._log(`广播消息: ${filteredMessage}`);
+      }
+      
+      addBlockedWord(word) {
+        if (word && !this.blockedWords.has(word.toLowerCase())) {
+          this.blockedWords.add(word.toLowerCase());
+          this._updateBlockedWordsList();
+          this._log(`添加屏蔽词: ${word}`);
+          return true;
+        }
+        return false;
+      }
+      
+      removeBlockedWord(word) {
+        if (this.blockedWords.has(word.toLowerCase())) {
+          this.blockedWords.delete(word.toLowerCase());
+          this._updateBlockedWordsList();
+          this._log(`移除屏蔽词: ${word}`);
+          return true;
+        }
+        return false;
+      }
+      
+      registerClientHandler(handler) {
+        this.clientHandlers.push(handler);
+      }
+      
+      _filterMessage(message) {
+        let filtered = message;
+        this.blockedWords.forEach(word => {
+          const regex = new RegExp(`\\b${word}\\b`, 'gi');
+          filtered = filtered.replace(regex, this._getReplacement(word.length));
+        });
+        return filtered;
+      }
+      
+      _getReplacement(length) {
+        return '*'.repeat(length);
+      }
+      
+      _log(message) {
+        const logElement = document.getElementById('serverLog');
+        const timestamp = new Date().toLocaleTimeString();
+        const logEntry = document.createElement('div');
+        logEntry.className = 'mb-1';
+        logEntry.innerHTML = `<span class="text-gray-400">${timestamp}</span> <span class="text-white">${message}</span>`;
+        logElement.appendChild(logEntry);
+        logElement.scrollTop = logElement.scrollHeight;
+      }
+      
+      _updateStatus(status) {
+        const statusElement = document.getElementById('serverStatus');
+        statusElement.textContent = status;
+        
+        if (status === '运行中') {
+          statusElement.className = 'bg-green-100 text-green-800 rounded-lg px-3 py-2 text-sm font-medium';
+        } else {
+          statusElement.className = 'bg-gray-100 text-gray-600 rounded-lg px-3 py-2 text-sm font-medium';
+        }
+      }
+      
+      _updateConnectionCount() {
+        const countElement = document.getElementById('connectionCount');
+        countElement.textContent = this.server ? this.server.clients.size : '0';
+      }
+      
+      _updateBlockedWordsList() {
+        const listElement = document.getElementById('blockedWordsList');
+        listElement.innerHTML = '';
+        
+        if (this.blockedWords.size === 0) {
+          const emptyItem = document.createElement('div');
+          emptyItem.className = 'text-gray-500 italic';
+          emptyItem.textContent = '暂无屏蔽词';
+          listElement.appendChild(emptyItem);
+          return;
+        }
+        
+        this.blockedWords.forEach(word => {
+          const item = document.createElement('div');
+          item.className = 'flex justify-between items-center mb-1';
+          item.innerHTML = `
+            <span class="bg-gray-200 px-2 py-1 rounded">${word}</span>
+            <button class="text-red-500 hover:text-red-700 remove-word" data-word="${word}">
+              <i class="fa fa-times"></i>
+            </button>
+          `;
+          listElement.appendChild(item);
+        });
+        
+        // 添加删除事件监听
+        document.querySelectorAll('.remove-word').forEach(button => {
+          button.addEventListener('click', (e) => {
+            const word = e.currentTarget.getAttribute('data-word');
+            this.removeBlockedWord(word);
+          });
+        });
+      }
+    }
+    
+    // 客户端WebSocket实现
+    class WebSocketClient {
+      constructor(serverAddress, server) {
+        this.socket = null;
+        this.serverAddress = serverAddress;
+        this.server = server;
+        this.messageHandler = null;
+        this.statusHandler = null;
+        this.isConnected = false;
+        this.userName = '用户';
+        this.reactions = new Map(); // 存储消息ID和用户反应的映射
+      }
+      
+      connect() {
+        return new Promise((resolve, reject) => {
+          try {
+            // 由于浏览器安全限制，无法真正创建WebSocket服务器
+            // 这里使用模拟的方式与我们的"服务器"通信
+            if (this.server) {
+              // 注册消息处理函数
+              this.server.registerClientHandler((event) => {
+                if (this.messageHandler) {
+                  try {
+                    const messageData = JSON.parse(event.data);
+                    this.messageHandler(messageData);
+                  } catch (e) {
+                    // 如果解析失败，使用原始消息
+                    this.messageHandler({ id: generateMessageId(), content: event.data });
+                  }
+                }
+              });
+              
+              this.isConnected = true;
+              this._updateStatus('已连接');
+              this._log('连接成功');
+              resolve();
+            } else {
+              this._log('无法连接到服务器: 服务器未初始化');
+              reject(new Error('服务器未初始化'));
+            }
+          } catch (error) {
+            this._log(`创建连接失败: ${error.message}`);
+            reject(error);
+          }
+        });
+      }
+      
+      disconnect() {
+        this.isConnected = false;
+        this._updateStatus('未连接');
+        this._log('连接已关闭');
+      }
+      
+      send(message) {
+        if (this.isConnected && this.server && this.server.server) {
+          // 直接调用服务器的消息处理函数，带上用户名
+          if (this.server._messageCallback) {
+            this.server._messageCallback(`${this.userName}: ${message}`);
+          }
+          this._log(`发送消息: ${message}`);
+        }
+      }
+      
+      setUserName(name) {
+        this.userName = name;
+        this._log(`用户名已设置为: ${name}`);
+        return name;
+      }
+      
+      reactToMessage(messageId, reaction) {
+        this.reactions.set(messageId, reaction);
+        // 在实际应用中，这里应该发送反应到服务器
+        this._log(`对消息 ${messageId} 添加了反应: ${reaction}`);
+      }
+      
+      onMessage(handler) {
+        this.messageHandler = handler;
+      }
+      
+      onStatusChange(handler) {
+        this.statusHandler = handler;
+      }
+      
+      _updateStatus(status) {
+        if (this.statusHandler) {
+          this.statusHandler(status);
+        }
+      }
+      
+      _log(message) {
+        console.log(`[WebSocketClient] ${message}`);
+      }
+    }
+    
+    // 应用逻辑
+    document.addEventListener('DOMContentLoaded', () => {
+      const server = new WebSocketServer();
+      let client = null;
+      
+      // 元素引用
+      const startServerBtn = document.getElementById('startServerBtn');
+      const stopServerBtn = document.getElementById('stopServerBtn');
+      const serverAddress = document.getElementById('serverAddress');
+      const copyAddressBtn = document.getElementById('copyAddressBtn');
+      const messageInput = document.getElementById('messageInput');
+      const sendMessageBtn = document.getElementById('sendMessageBtn');
+      const newBlockedWord = document.getElementById('newBlockedWord');
+      const addBlockedWordBtn = document.getElementById('addBlockedWordBtn');
+      const clearLogBtn = document.getElementById('clearLogBtn');
+      const chatMessages = document.getElementById('chatMessages');
+      const userNameInput = document.getElementById('userName');
+      const setUserNameBtn = document.getElementById('setUserNameBtn');
+      
+      // 初始化屏蔽词列表
+      server._updateBlockedWordsList();
+      
+      // 设置用户名
+      setUserNameBtn.addEventListener('click', () => {
+        const name = userNameInput.value.trim() || '用户';
+        if (client) {
+          client.setUserName(name);
+          addMessageToChat('系统', `你的用户名已设置为: ${name}`);
+        }
+      });
+      
+      // 启动服务器
+      startServerBtn.addEventListener('click', async () => {
+        try {
+          await server.start();
+          
+          // 更新UI状态
+          startServerBtn.disabled = true;
+          stopServerBtn.disabled = false;
+          sendMessageBtn.disabled = false;
+          
+          // 创建客户端连接
+          const address = serverAddress.value;
+          client = new WebSocketClient(address, server);
+          
+          // 设置初始用户名
+          client.setUserName(userNameInput.value.trim() || '用户');
+          
+          client.onMessage((messageData) => {
+            addMessageToChat('服务器', messageData.content, messageData.id);
+          });
+          
+          client.onStatusChange((status) => {
+            console.log(`客户端状态: ${status}`);
+          });
+          
+          await client.connect();
+          addMessageToChat('系统', '已连接到服务器');
+        } catch (error) {
+          console.error('启动服务器失败:', error);
+        }
+      });
+      
+      // 停止服务器
+      stopServerBtn.addEventListener('click', async () => {
+        try {
+          if (client) {
+            client.disconnect();
+            client = null;
+          }
+          
+          await server.stop();
+          
+          // 更新UI状态
+          startServerBtn.disabled = false;
+          stopServerBtn.disabled = true;
+          sendMessageBtn.disabled = true;
+          
+          addMessageToChat('系统', '服务器已停止');
+        } catch (error) {
+          console.error('停止服务器失败:', error);
+        }
+      });
+      
+      // 复制服务器地址
+      copyAddressBtn.addEventListener('click', () => {
+        serverAddress.select();
+        document.execCommand('copy');
+        
+        // 显示复制成功提示
+        const originalText = copyAddressBtn.innerHTML;
+        copyAddressBtn.innerHTML = '<i class="fa fa-check"></i>';
+        setTimeout(() => {
+          copyAddressBtn.innerHTML = originalText;
+        }, 1500);
+      });
+      
+      // 发送消息
+      sendMessageBtn.addEventListener('click', sendMessage);
+      messageInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          sendMessage();
+        }
+      });
+      
+      // 添加屏蔽词
+      addBlockedWordBtn.addEventListener('click', () => {
+        const word = newBlockedWord.value.trim().toLowerCase();
+        if (word) {
+          server.addBlockedWord(word);
+          newBlockedWord.value = '';
+        }
+      });
+      
+      // 按回车添加屏蔽词
+      newBlockedWord.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          addBlockedWordBtn.click();
+        }
+      });
+      
+      // 清空日志
+      clearLogBtn.addEventListener('click', () => {
+        document.getElementById('serverLog').innerHTML = '';
+      });
+      
+      // 发送消息函数
+      function sendMessage() {
+        const message = messageInput.value.trim();
+        if (message && client && client.isConnected) {
+          const messageId = generateMessageId();
+          addMessageToChat(client.userName, message, messageId, true);
+          client.send(message);
+          messageInput.value = '';
+        }
+      }
+      
+      // 添加消息到聊天区域
+      function addMessageToChat(sender, message, messageId, isSelf = false) {
+        const messageElement = document.createElement('div');
+        messageElement.className = 'message-container flex items-start mb-4';
+        messageElement.dataset.messageId = messageId;
+        
+        // 提取实际发送者名称和消息内容
+        let displaySender = sender;
+        let displayMessage = message;
+        
+        if (sender === '服务器') {
+          const match = message.match(/^([^:]+): (.*)$/);
+          if (match) {
+            displaySender = match[1];
+            displayMessage = match[2];
+          }
+        }
+        
+        // 判断是否是自己的消息
+        const isOwnMessage = isSelf || (client && displaySender === client.userName);
+        
+        if (isOwnMessage) {
+          messageElement.className += ' justify-end';
+          messageElement.innerHTML = `
+            <div class="bg-primary text-white rounded-lg rounded-tr-none p-3 max-w-[80%] shadow-lg relative">
+              <div class="font-medium mb-1">${displaySender}</div>
+              <div class="break-words">${displayMessage}</div>
+              <div class="message-options absolute -bottom-6 right-0 flex gap-2 bg-white text-gray-500 rounded-full px-2 py-1 shadow-md">
+                <button class="retract-btn text-red-500 hover:text-red-700" title="撤回">
+                  <i class="fa fa-undo"></i>
+                </button>
+              </div>
+              <div class="message-reactions"></div>
+            </div>
+            <div class="w-8 h-8 bg-primary/20 rounded-full flex items-center justify-center text-primary ml-2">
+              <i class="fa fa-user"></i>
+            </div>
+          `;
+        } else {
+          messageElement.innerHTML = `
+            <div class="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-gray-600 mr-2">
+              <i class="fa fa-user"></i>
+            </div>
+            <div class="bg-white border border-gray-200 rounded-lg rounded-tl-none p-3 max-w-[80%] shadow-md relative">
+              <div class="font-medium text-primary mb-1">${displaySender}</div>
+              <div class="break-words">${displayMessage}</div>
+              <div class="message-options absolute -bottom-6 left-0 flex gap-2 bg-white text-gray-500 rounded-full px-2 py-1 shadow-md">
+                <button class="reaction-btn" data-reaction="👍" title="赞">👍</button>
+                <button class="reaction-btn" data-reaction="❤" title="喜欢">❤</button>
+                <button class="reaction-btn" data-reaction="💩" title="这不是一坨吗">💩</button>
+                <button class="reaction-btn" data-reaction="❎" title="不显示">❎</button>
+              </div>
+              <div class="message-reactions"></div>
+            </div>
+          `;
+        }
+        
+        chatMessages.appendChild(messageElement);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        
+        // 添加消息交互事件
+        if (isOwnMessage) {
+          // 自己的消息可以撤回
+          const retractBtn = messageElement.querySelector('.retract-btn');
+          if (retractBtn) {
+            retractBtn.addEventListener('click', () => {
+              retractMessage(messageId);
+            });
+          }
+        } else {
+          // 他人消息可以添加反应
+          const reactionBtns = messageElement.querySelectorAll('.reaction-btn');
+          reactionBtns.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+              const reaction = e.currentTarget.getAttribute('data-reaction');
+              addReactionToMessage(messageId, reaction, messageElement);
+            });
+          });
+        }
+      }
+      
+      // 撤回消息
+      function retractMessage(messageId) {
+        const messageElement = document.querySelector(`.message-container[data-messageId="${messageId}"]`);
+        if (messageElement) {
+          // 获取消息内容
+          const messageContent = messageElement.querySelector('.break-words').textContent;
+          
+          // 替换为撤回提示
+          messageElement.querySelector('.break-words').innerHTML = '<span class="text-gray-400 italic">你撤回了一条消息</span>';
+          
+          // 隐藏选项按钮
+          const options = messageElement.querySelector('.message-options');
+          if (options) options.style.display = 'none';
+          
+          // 记录到服务器日志
+          server._log(`用户撤回了消息: ${messageContent}`);
+        }
+      }
+      
+      // 添加反应到消息
+      function addReactionToMessage(messageId, reaction, messageElement) {
+        if (!messageElement) {
+          messageElement = document.querySelector(`.message-container[data-messageId="${messageId}"]`);
+        }
+        
+        if (messageElement) {
+          // 保存反应
+          if (client) {
+            client.reactToMessage(messageId, reaction);
+          }
+          
+          // 更新UI
+          const reactionsContainer = messageElement.querySelector('.message-reactions');
+          if (reactionsContainer) {
+            // 查找是否已有该反应
+            let reactionElement = reactionsContainer.querySelector(`.reaction[data-reaction="${reaction}"]`);
+            
+            if (reactionElement) {
+              // 如果已有反应，增加计数
+              const countElement = reactionElement.querySelector('.count');
+              let count = parseInt(countElement.textContent) || 1;
+              countElement.textContent = count + 1;
+              
+              // 添加动画效果
+              reactionElement.classList.add('animate-pulse');
+              setTimeout(() => {
+                reactionElement.classList.remove('animate-pulse');
+              }, 500);
+            } else {
+              // 创建新的反应元素
+              reactionElement = document.createElement('div');
+              reactionElement.className = 'reaction flex items-center gap-1';
+              reactionElement.dataset.reaction = reaction;
+              reactionElement.innerHTML = `
+                <span>${reaction}</span>
+                <span class="count">1</span>
+              `;
+              reactionsContainer.appendChild(reactionElement);
+            }
+            
+            // 如果是"不显示"反应，隐藏消息
+            if (reaction === '❎') {
+              setTimeout(() => {
+                messageElement.style.opacity = '0.3';
+                messageElement.style.pointerEvents = 'none';
+              }, 500);
+            }
+          }
+        }
+      }
+    });
+  </script>
+</body>
+</html>
+    
